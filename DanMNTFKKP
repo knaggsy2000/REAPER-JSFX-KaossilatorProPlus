@@ -32,7 +32,8 @@
 //
 // Notes: -
 //    1. This plugin should also work for the original Kaossilator Pro too but have not tested/tried myself
-//    2. Ensure you set the key range to FULL to get the whole MIDI range of notes
+//    2. Ensure you set the range to FULL to get the whole MIDI range of notes
+//    3. Ensure you set the scale to OFF
 //
 //
 // References: -
@@ -42,7 +43,7 @@
 //
 desc:MIDI Note Translator For KORG Kaossilator Pro+
 //author: Daniel Knaggs
-//version: 0.1.0
+//version: 0.2.0
 
 
 // Controls
@@ -62,6 +63,7 @@ MIDI_CHANNEL_AFTERTOUCH = 0xD0; // Also known as channel pressure
 MIDI_KP_PAD_TOUCHED_CC = 92;
 MIDI_KP_X_AXIS_CC = 12;
 MIDI_KP_Y_AXIS_CC = 13;
+MIDI_PC = 0xC0;
 MIDI_PITCH_BEND = 0xE0;
 MIDI_NOTE_OFF = 0x80;
 MIDI_NOTE_ON = 0x90;
@@ -72,6 +74,11 @@ pitchBend = 0;
 
 
 // Functions
+function sendBankChange(o, b, c)
+(
+  midisend(o, MIDI_CC + sendMIDIChannel, b, c);
+);
+
 function sendPadOff(o)
 (
   midisend(o, MIDI_CC + sendMIDIChannel, MIDI_KP_PAD_TOUCHED_CC, 0);
@@ -80,6 +87,11 @@ function sendPadOff(o)
 function sendPadOn(o)
 (
   midisend(o, MIDI_CC + sendMIDIChannel, MIDI_KP_PAD_TOUCHED_CC, 127);
+);
+
+function sendProgramChange(o, p)
+(
+  midisend(o, MIDI_PC + sendMIDIChannel, p, 0);
 );
 
 function sendXAxis(o)
@@ -132,9 +144,9 @@ while (midirecv(offset, msg1, msg2, msg3))
   );
   
   
-  ///////////////////
-  // Notes presses //
-  ///////////////////
+  //////////////////
+  // Note presses //
+  //////////////////
   noteStatus == MIDI_NOTE_ON && (receiveMIDIChannel == 0 || receiveMIDIChannel == channel + 1) ?
   (
     note = data1;
@@ -151,15 +163,33 @@ while (midirecv(offset, msg1, msg2, msg3))
   );
   
   
-  ////////////////////
-  // Notes released //
-  ////////////////////
+  ///////////////////
+  // Note released //
+  ///////////////////
   noteStatus == MIDI_NOTE_OFF && (receiveMIDIChannel == 0 || receiveMIDIChannel == channel + 1) ?
   (
     note = data1;
     
     sendPadOff(offset);
   );
+  
+  
+  /////////////////
+  // Bank change //
+  /////////////////
+  noteStatus == MIDI_CC && (receiveMIDIChannel == 0 || receiveMIDIChannel == channel + 1) ?
+  (
+    sendBankChange(offset, data1, data2);
+  );
+  
+  
+  ////////////////////
+  // Program change //
+  ////////////////////
+  noteStatus == MIDI_PC && (receiveMIDIChannel == 0 || receiveMIDIChannel == channel + 1) ?
+  (
+    sendProgramChange(offset, data1);
+  )
 );
 
 
