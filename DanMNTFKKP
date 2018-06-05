@@ -1,0 +1,169 @@
+// BSD 3-Clause LICENSE
+// 
+// Copyright (c) 2018, Daniel Knaggs
+// All rights reserved.
+// 
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// 
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
+//       
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//       
+//     * Neither the name of the organization nor the
+//       names of its contributors may be used to endorse or promote products
+//       derived from this software without specific prior written permission.
+// 
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+// ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+// WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
+// DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+// (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+// LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+// ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+//
+// Notes: -
+//    1. This plugin should also work for the original Kaossilator Pro too but have not tested/tried myself
+//    2. Ensure you set the key range to FULL to get the whole MIDI range of notes
+//
+//
+// References: -
+//    https://www.reaper.fm/sdk/js/js.php
+//    https://www.midi.org/specifications-old/item/table-2-expanded-messages-list-status-bytes
+//    http://i.korg.com/uploads/Support/USA_KAOSSILATOR_PRO__Plus_MIDIimp.txt
+//
+desc:MIDI Note Translator For KORG Kaossilator Pro+
+//author: Daniel Knaggs
+//version: 0.1.0
+
+
+// Controls
+slider1:0 <0, 16, 1 {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}>Receive MIDI Channel (0 = all)
+slider2:0 <1, 16, 1 {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}>Send To MIDI Channel
+slider3:63 <0, 127, 1>Y-axis (Channel Aftertouch/Pressure)
+slider4:0 <-48, 48, 1>Transpose
+
+
+//////////
+// Main //
+//////////
+@init
+// Constants
+MIDI_CC = 0xB0;
+MIDI_CHANNEL_AFTERTOUCH = 0xD0; // Also known as channel pressure
+MIDI_KP_PAD_TOUCHED_CC = 92;
+MIDI_KP_X_AXIS_CC = 12;
+MIDI_KP_Y_AXIS_CC = 13;
+MIDI_PITCH_BEND = 0xE0;
+MIDI_NOTE_OFF = 0x80;
+MIDI_NOTE_ON = 0x90;
+
+// Variables
+note = 0;
+pitchBend = 0;
+
+
+// Functions
+function sendPadOff(o)
+(
+  midisend(o, MIDI_CC + sendMIDIChannel, MIDI_KP_PAD_TOUCHED_CC, 0);
+);
+
+function sendPadOn(o)
+(
+  midisend(o, MIDI_CC + sendMIDIChannel, MIDI_KP_PAD_TOUCHED_CC, 127);
+);
+
+function sendXAxis(o)
+(
+  midisend(o, MIDI_CC + sendMIDIChannel, MIDI_KP_X_AXIS_CC, min(max(note + transpose + pitchBend, 0), 127));
+);
+
+function sendYAxis(o)
+(
+  midisend(o, MIDI_CC + sendMIDIChannel, MIDI_KP_Y_AXIS_CC, min(max(yAxis, 0), 127));
+);
+
+
+@slider
+receiveMIDIChannel = slider1;
+sendMIDIChannel = slider2;
+yAxis = slider3;
+transpose = slider4;
+
+
+@block
+while (midirecv(offset, msg1, msg2, msg3))
+(
+  noteStatus = msg1 & 0xF0;
+  channel = msg1 & 0x0F;
+  data1 = msg2;
+  data2 = msg3;
+  
+  
+  ////////////////
+  // Pitch bend //
+  ////////////////
+  noteStatus == MIDI_PITCH_BEND && (receiveMIDIChannel == 0 || receiveMIDIChannel == channel + 1) ?
+  (
+    pitchBend = floor((((data2 << 7) | (data1)) - 8192) / 64);
+    
+    sendXAxis(offset);
+  );
+  
+  
+  ////////////////////////
+  // Channel aftertouch //
+  ////////////////////////
+  noteStatus == MIDI_CHANNEL_AFTERTOUCH && (receiveMIDIChannel == 0 || receiveMIDIChannel == channel + 1) ?
+  (
+    yAxis = data1;
+    slider3 = yAxis;
+    
+    sendYAxis(offset);
+  );
+  
+  
+  ///////////////////
+  // Notes presses //
+  ///////////////////
+  noteStatus == MIDI_NOTE_ON && (receiveMIDIChannel == 0 || receiveMIDIChannel == channel + 1) ?
+  (
+    note = data1;
+    
+    data2 > 0 ?
+    (
+      sendPadOn(offset);
+      sendYAxis(offset);
+      sendXAxis(offset);
+    ) :
+    (
+      sendPadOff(offset);
+    )
+  );
+  
+  
+  ////////////////////
+  // Notes released //
+  ////////////////////
+  noteStatus == MIDI_NOTE_OFF && (receiveMIDIChannel == 0 || receiveMIDIChannel == channel + 1) ?
+  (
+    note = data1;
+    
+    sendPadOff(offset);
+  );
+);
+
+
+@sample
+// Passthrough any audio so we can process both the MIDI and let the audio come back from the KP on the same track
+spl0 = spl0;
+spl1 = spl1;
